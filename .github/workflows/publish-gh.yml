@@ -24,6 +24,10 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   SCOPE: "@filo87"
   REGISTRY: "https://npm.pkg.github.com"
+  # The mirror's versions carry a prerelease suffix (3.16.1-filo.0). npm refuses
+  # to publish a prerelease without an explicit tag, and `latest` keeps a plain
+  # install of the scope's envio working.
+  NPM_TAG: "latest"
 
 jobs:
   version:
@@ -91,7 +95,7 @@ jobs:
             exit 1
           fi
           echo "Publishing $(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
-          npm publish --registry "$REGISTRY"
+          npm publish --registry "$REGISTRY" --tag "$NPM_TAG"
 
   publish-envio-package:
     runs-on: ubuntu-latest
@@ -144,4 +148,4 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Publishing $(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
-          npm publish --registry "$REGISTRY"
+          npm publish --registry "$REGISTRY" --tag "$NPM_TAG"
