@@ -61,12 +61,12 @@ jobs:
     needs: [version, build-platforms]
     strategy:
       matrix:
+        # Linux only. This mirror carries no macOS build, so the macOS runners
+        # never hold up a publish.
         pkg:
           - envio-linux-x64
           - envio-linux-x64-musl
           - envio-linux-arm64
-          - envio-darwin-x64
-          - envio-darwin-arm64
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v6
