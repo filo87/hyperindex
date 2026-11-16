@@ -1,0 +1,147 @@
+name: Publish to GitHub Packages
+
+# A self-hosted mirror of the envio packages under the fork owner's scope, so a
+# private project installs the same build with `npm:@filo87/envio@<ver>`. The
+# upstream packages go to npmjs through publish.yml; this workflow never
+# touches npmjs.
+
+on:
+  push:
+    tags:
+      - "filo-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, for example 3.16.1-filo.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SCOPE: "@filo87"
+  REGISTRY: "https://npm.pkg.github.com"
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve the version
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # filo-v3.16.1-filo.0 -> 3.16.1-filo.0
+            VERSION="${GITHUB_REF_NAME#filo-v}"
+          fi
+          case "$VERSION" in
+            ""|*/*|*" "*)
+              echo "Bad version: '$VERSION'"
+              exit 1
+              ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${SCOPE}/envio@${VERSION}"
+
+  build-platforms:
+    needs: version
+    uses: ./.github/workflows/build-platforms.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      scope: "@filo87"
+
+  publish-platform-packages:
+    runs-on: ubuntu-latest
+    needs: [version, build-platforms]
+    strategy:
+      matrix:
+        pkg:
+          - envio-linux-x64
+          - envio-linux-x64-musl
+          - envio-linux-arm64
+          - envio-darwin-x64
+          - envio-darwin-arm64
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@filo87"
+
+      - name: Download platform package
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-pkg-${{ matrix.pkg }}
+          path: ./pkg
+
+      - name: Publish
+        working-directory: ./pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f envio.node ]; then
+            echo "ERROR: envio.node not found in platform package"
+            exit 1
+          fi
+          echo "Publishing $(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
+          npm publish --registry "$REGISTRY"
+
+  publish-envio-package:
+    runs-on: ubuntu-latest
+    needs: [version, publish-platform-packages]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 11
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@filo87"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build the envio package
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          node packages/build-envio/src/build-artifact.ts \
+            --version "$VERSION" --scope "$SCOPE" --out envio-dist
+          node packages/build-envio/src/verify-artifact.ts envio-dist
+
+      # GitHub Packages links a package to the repository in this field, so it
+      # names the fork rather than upstream.
+      - name: Point the package at this repository
+        working-directory: envio-dist
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
+            pkg.repository = {
+              type: 'git',
+              url: 'git+https://github.com/${{ github.repository }}.git'
+            };
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Publish
+        working-directory: envio-dist
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Publishing $(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
+          npm publish --registry "$REGISTRY"

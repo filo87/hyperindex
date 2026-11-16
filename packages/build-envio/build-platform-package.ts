@@ -19,6 +19,10 @@ const { values } = parseArgs({
     // the package name when "musl" and sets npm's `libc` field so npm/pnpm
     // picks the right optional dependency on the install host.
     libc: { type: "string" as const },
+    // Optional npm scope for a self-hosted build (for example `@acme`). The
+    // package is published as `<scope>/envio-<platform>-<arch>`, matching the
+    // scope `envio` itself is published under.
+    scope: { type: "string" as const },
     out: { type: "string" as const },
   },
   strict: true,
@@ -26,14 +30,15 @@ const { values } = parseArgs({
 
 if (!values.version || !values.platform || !values.arch || !values.out) {
   console.error(
-    "Usage: node build-platform-package.ts --version <v> --platform <os> --arch <arch> [--libc <glibc|musl>] --out <dir>"
+    "Usage: node build-platform-package.ts --version <v> --platform <os> --arch <arch> [--libc <glibc|musl>] [--scope <@scope>] --out <dir>"
   );
   process.exit(1);
 }
 
-const { version, platform, arch, libc, out } = values;
-const name =
+const { version, platform, arch, libc, scope, out } = values;
+const baseName =
   libc === "musl" ? `envio-${platform}-${arch}-musl` : `envio-${platform}-${arch}`;
+const name = scope ? `${scope}/${baseName}` : baseName;
 
 const pkg: Record<string, unknown> = {
   name,

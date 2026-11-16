@@ -7,7 +7,7 @@
  * 3. Writes a publish-ready package.json into dist
  *
  * Usage:
- *   node src/build-artifact.ts --version <version> [--platform-pkg-version <version>] [--out <dir>]
+ *   node src/build-artifact.ts --version <version> [--platform-pkg-version <version>] [--scope <@scope>] [--out <dir>]
  *
  * The source envio package is never mutated; output goes to --out (default: packages/envio/dist).
  */
@@ -23,13 +23,20 @@ export type BuildOptions = {
   version: string;
   /** Version for platform-specific optional deps. Defaults to `version`. */
   platformPkgVersion?: string;
+  /**
+   * npm scope for a self-hosted build (for example `@acme`). The package is
+   * published as `<scope>/envio` and names its platform packages under the
+   * same scope, so a GitHub Packages or private-registry mirror resolves them.
+   * Omitted, the package keeps the bare `envio` name.
+   */
+  scope?: string;
   /** Absolute path to the envio package. Defaults to packages/envio. */
   envioDir?: string;
   /** Absolute path to the output dist directory. Defaults to <envioDir>/dist. */
   outDir?: string;
   /** Absolute path to the README to copy. Defaults to packages/cli/README.md. */
   readmePath?: string;
-  /** Absolute path to the licenses directory to copy. Defaults to licenses/. */
+  /** Absolute path to the licenses directory. Defaults to licenses/. */
   licensesDir?: string;
   /** Skip ReScript compilation (useful for tests). */
   skipRescript?: boolean;
@@ -69,7 +76,8 @@ const PUBLISH_FILES = [
 export function buildPackageJson(
   devPkg: Record<string, unknown>,
   version: string,
-  platformPkgVersion: string
+  platformPkgVersion: string,
+  scope?: string
 ): Record<string, unknown> {
   const pkg: Record<string, unknown> = { ...devPkg };
 
@@ -79,17 +87,25 @@ export function buildPackageJson(
   delete pkg.scripts;
   delete pkg.devDependencies;
 
+  // A self-hosted build is published under the scope, and its platform
+  // packages carry the scope too, so the loader (which derives the scope from
+  // this package's name) resolves them.
+  const scoped = (name: string) => (scope ? `${scope}/${name}` : name);
+  if (scope) {
+    pkg.name = scoped("envio");
+  }
+
   pkg.bin = "./bin.mjs";
 
   // Add optional platform-specific dependencies. npm/pnpm use the `libc`
   // field in each platform package's package.json to skip the wrong flavor
   // on Linux (glibc vs musl).
   pkg.optionalDependencies = {
-    "envio-linux-x64": platformPkgVersion,
-    "envio-linux-x64-musl": platformPkgVersion,
-    "envio-linux-arm64": platformPkgVersion,
-    "envio-darwin-x64": platformPkgVersion,
-    "envio-darwin-arm64": platformPkgVersion,
+    [scoped("envio-linux-x64")]: platformPkgVersion,
+    [scoped("envio-linux-x64-musl")]: platformPkgVersion,
+    [scoped("envio-linux-arm64")]: platformPkgVersion,
+    [scoped("envio-darwin-x64")]: platformPkgVersion,
+    [scoped("envio-darwin-arm64")]: platformPkgVersion,
   };
 
   return pkg;
@@ -182,7 +198,12 @@ export function build(opts: BuildOptions): void {
   const devPkg = JSON.parse(
     fs.readFileSync(path.join(envioDir, "package.json"), "utf-8")
   );
-  const publishPkg = buildPackageJson(devPkg, opts.version, platformPkgVersion);
+  const publishPkg = buildPackageJson(
+    devPkg,
+    opts.version,
+    platformPkgVersion,
+    opts.scope
+  );
   fs.writeFileSync(
     path.join(outDir, "package.json"),
     JSON.stringify(publishPkg, null, 2) + "\n"
@@ -208,6 +229,7 @@ function main(): void {
     options: {
       version: { type: "string" },
       "platform-pkg-version": { type: "string" },
+      scope: { type: "string" },
       out: { type: "string" },
       "skip-rescript": { type: "boolean", default: false },
     },
@@ -222,6 +244,7 @@ function main(): void {
   build({
     version: values.version,
     platformPkgVersion: values["platform-pkg-version"],
+    scope: values.scope,
     outDir: values.out ? path.resolve(values.out) : undefined,
     skipRescript: values["skip-rescript"],
   });

@@ -6,6 +6,12 @@ on:
       version:
         required: true
         type: string
+      # npm scope for a self-hosted build (for example `@acme`). Empty keeps
+      # the upstream `envio-<platform>-<arch>` names.
+      scope:
+        required: false
+        type: string
+        default: ""
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -81,13 +87,16 @@ jobs:
           PLATFORM: ${{ matrix.job.platform }}
           ARCH: ${{ matrix.job.arch }}
           LIBC: ${{ matrix.job.libc }}
+          SCOPE: ${{ inputs.scope }}
           VERSION: ${{ inputs.version }}
         run: |
           node_pkg="packages/cli/npm/envio-${NAME}"
           libc_flag=""
           if [ -n "${LIBC}" ]; then libc_flag="--libc ${LIBC}"; fi
+          scope_flag=""
+          if [ -n "${SCOPE}" ]; then scope_flag="--scope ${SCOPE}"; fi
           node packages/build-envio/build-platform-package.ts \
-            --version "${VERSION}" --platform "${PLATFORM}" --arch "${ARCH}" ${libc_flag} --out "${node_pkg}"
+            --version "${VERSION}" --platform "${PLATFORM}" --arch "${ARCH}" ${libc_flag} ${scope_flag} --out "${node_pkg}"
           # Copy the platform-specific cdylib as envio.node (matches package.json main)
           case "${PLATFORM}" in
             linux)  lib_name="libenvio.so" ;;

@@ -199,7 +199,7 @@ let loadDevAddon: ({..}, string) => Null.t<addon> = %raw(`function(req, envioDir
 // `code`, and any other fields a diagnostic might rely on.
 let rethrow: JsExn.t => 'a = %raw(`function(e) { throw e }`)
 
-type packageJson = {version: string}
+type packageJson = {version: string, name: string}
 let requirePackageJson: ({..}, string) => packageJson = %raw(`(req, p) => req(p)`)
 let devVersion = "0.0.1-dev"
 
@@ -218,15 +218,28 @@ let addCommand = () =>
 let loadAddon = () => {
   let req = createRequire(importMetaUrl)
 
+  // A self-hosted build under a scope (`@acme/envio`) publishes its platform
+  // packages under the same scope (`@acme/envio-linux-x64`). The installed
+  // package can sit under a local alias, so the scope is read from the
+  // package's own name, not the name the consumer requires.
+  let scope = switch (requirePackageJson(req, "../package.json").name)->String.split("/") {
+  | [scope, _] if scope->String.startsWith("@") => Some(scope)
+  | _ => None
+  }
+
   // npm's `libc` field installs only the matching package on Linux, so the
   // wrong name throws MODULE_NOT_FOUND immediately and the next candidate
   // wins. An empty list means the host isn't a publish target.
-  let candidates = switch (processPlatform, processArch) {
+  let platformNames = switch (processPlatform, processArch) {
   | ("linux", "x64") => [`envio-linux-x64`, `envio-linux-x64-musl`]
   | ("linux", "arm64") => [`envio-linux-arm64`]
   | ("darwin", "x64") => [`envio-darwin-x64`]
   | ("darwin", "arm64") => [`envio-darwin-arm64`]
   | _ => []
+  }
+  let candidates = switch scope {
+  | Some(scope) => platformNames->Array.map(name => `${scope}/${name}`)
+  | None => platformNames
   }
 
   // Only swallow MODULE_NOT_FOUND (the optional package isn't installed on
@@ -270,7 +283,7 @@ let loadAddon = () => {
         `envio doesn't support ${host}. Supported: linux-x64 (glibc/musl), linux-arm64, darwin-x64, darwin-arm64.`
       | _ =>
         let pkg = if processPlatform === "linux" && processArch === "x64" && !isGlibc() {
-          `envio-linux-x64-musl`
+          candidates->Array.getUnsafe(1)
         } else {
           candidates->Array.getUnsafe(0)
         }
