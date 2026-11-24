@@ -1633,6 +1633,7 @@ impl DataSource {
                 fallback_stall_timeout: None,
                 query_timeout_millis: None,
                 polling_interval: None,
+                min_polling_interval: None,
             }],
             Some(RpcSelection::Single(rpc)) => vec![resolve_for(rpc)],
             Some(RpcSelection::List(list)) => list.into_iter().map(resolve_for).collect(),

@@ -30,6 +30,7 @@ chains:
       backoff_millis: 5000
       query_timeout_millis: 20000
       polling_interval: 2000
+      min_polling_interval: 3000
     start_block: 0
     contracts:
       - name: Contract1

@@ -209,6 +209,11 @@ type t = {
   poweredByHyperSync: bool,
   /* Frequency (in ms) used when polling for new events on this network. */
   pollingInterval: int,
+  // The shortest gap, in milliseconds, between the start of one height poll
+  // request on this source and the start of the next. Absent means no floor.
+  // An RPC source sets it from `min_polling_interval`; every other source
+  // leaves it off.
+  minPollingInterval?: int,
   getBlockHashes: (~blockNumbers: array<int>, ~logger: Logger.t) => promise<getBlockHashesResponse>,
   getHeightOrThrow: unit => promise<getHeightResponse>,
   getItemsOrThrow: (

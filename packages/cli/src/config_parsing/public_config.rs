@@ -307,6 +307,8 @@ struct RpcConfig {
     query_timeout_millis: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     polling_interval: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_polling_interval: Option<u32>,
 }
 
 #[derive(Serialize, Debug)]
@@ -535,6 +537,7 @@ impl SystemConfig {
                                 fallback_stall_timeout: rpc.fallback_stall_timeout,
                                 query_timeout_millis: rpc.query_timeout_millis,
                                 polling_interval: rpc.polling_interval,
+                                min_polling_interval: rpc.min_polling_interval,
                             })
                             .collect();
                         (hypersync_url, rpc_configs)

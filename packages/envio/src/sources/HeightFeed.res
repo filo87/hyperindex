@@ -80,6 +80,14 @@ type t = {
   // nothing here fires in normal running.
   pollTimeoutMillis: int,
   clock: Clock.t,
+  // The shortest gap this source allows between the start of one height request
+  // and the start of the next. Zero means no floor.
+  minPollingInterval: int,
+  // When the last height request this feed made started, on the feed's clock.
+  // A floor measures from the start of one request to the start of the next, so
+  // a request slow to answer still holds the next one a full floor away. Set by
+  // any request the feed makes, the poll loop and the idle catch-up alike.
+  mutable lastRequestStartedAt: option<float>,
   mutable knownHeight: int,
   mutable waiters: array<waiter>,
   mutable stream: streamState,
@@ -119,6 +127,8 @@ let make = (
   getHeightRetryInterval,
   pollTimeoutMillis,
   clock,
+  minPollingInterval: source.minPollingInterval->Option.getOr(0),
+  lastRequestStartedAt: None,
   knownHeight: 0,
   waiters: [],
   stream: NeverEnabled,
@@ -261,6 +271,11 @@ let recordLateAnswer = (feed: t, res: Source.getHeightResponse) => {
 // on the catch-up path that nothing waits on, a promise per connect that is
 // never released.
 let heightWithin = (feed: t): promise<pollOutcome> => {
+  if feed.minPollingInterval > 0 {
+    // The floor measures from the start of a request, so the clock is read
+    // here rather than when the answer lands.
+    feed.lastRequestStartedAt = Some(feed.clock.now())
+  }
   let timeoutId = ref(None)
   let timedOut = ref(false)
   let request = feed.source.getHeightOrThrow()
@@ -337,6 +352,24 @@ let nextRetryInterval = (feed: t) => {
   retryInterval
 }
 
+// The gap before this feed may start its next poll-loop request, in whole
+// milliseconds, or zero when the source sets no floor or one is not due.
+let minPollingGap = (feed: t) =>
+  if feed.minPollingInterval <= 0 {
+    0
+  } else {
+    switch feed.lastRequestStartedAt {
+    | None => 0
+    | Some(startedAt) =>
+      let remaining = feed.minPollingInterval->Int.toFloat -. (feed.clock.now() -. startedAt)
+      if remaining > 0. {
+        remaining->Js.Math.ceil_int
+      } else {
+        0
+      }
+    }
+  }
+
 // The wait a poll that did not answer earns, and the line that says why it was
 // earned. Both ways a poll can fail come through here, so the ramp and what is
 // said about it stay one thing.
@@ -373,21 +406,32 @@ let pollOnce = async (feed: t) => {
 
 let runPollLoop = async (feed: t) => {
   while feed->shouldPoll {
-    // A poll cannot end the loop: its failure is a value, and a waiter's is
-    // caught where it fires. Anything else in here throwing would leave coverage
-    // owed with nothing providing it — the one state this module must never be
-    // in — so the loop keeps that promise itself rather than trusting everything
-    // it calls to be total.
-    let (interval, kind) = try await feed->pollOnce catch {
-    | exn =>
-      feed.logger->Logger.error(
-        "The height poll cycle threw. Backing off and carrying on rather than leaving the source uncovered.",
-        ~params={"err": exn->Utils.prettifyExn},
-      )
-      (feed->nextRetryInterval, Backoff)
-    }
-    if feed->shouldPoll {
-      await feed->sleep(~kind, interval)
+    // No request before the source's floor has elapsed since the last one
+    // started. Kept inline so the off case, and a floor already satisfied,
+    // reach the request with no await in between and the poll a new wait buys
+    // stays as prompt as it is without a floor.
+    let gap = feed->minPollingGap
+    if gap > 0 {
+      // A cadence, so a new waiter or a stream event ends it early; the loop
+      // then recomputes the gap rather than trusting the one it slept.
+      await feed->sleep(~kind=Cadence, gap)
+    } else {
+      // A poll cannot end the loop: its failure is a value, and a waiter's is
+      // caught where it fires. Anything else in here throwing would leave
+      // coverage owed with nothing providing it — the one state this module
+      // must never be in — so the loop keeps that promise itself rather than
+      // trusting everything it calls to be total.
+      let (interval, kind) = try await feed->pollOnce catch {
+      | exn =>
+        feed.logger->Logger.error(
+          "The height poll cycle threw. Backing off and carrying on rather than leaving the source uncovered.",
+          ~params={"err": exn->Utils.prettifyExn},
+        )
+        (feed->nextRetryInterval, Backoff)
+      }
+      if feed->shouldPoll {
+        await feed->sleep(~kind, interval)
+      }
     }
   }
   feed.polling = false

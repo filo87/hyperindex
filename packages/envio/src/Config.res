@@ -7,6 +7,7 @@ type sourceSyncOptions = {
   queryTimeoutMillis?: int,
   fallbackStallTimeout?: int,
   pollingInterval?: int,
+  minPollingInterval?: int,
 }
 
 type contract = {
@@ -79,6 +80,9 @@ type sourceSync = {
   queryTimeoutMillis: int,
   fallbackStallTimeout: int,
   pollingInterval: int,
+  // The shortest gap, in milliseconds, between the start of one height poll
+  // request on a source and the start of the next. 0 means no floor.
+  minPollingInterval: int,
   // Whether a page reads the listed selections that share a filter with one
   // merged eth_getLogs. `ENVIO_RPC_MERGED_LOG_READS`, on by default.
   mergedLogReads: bool,
@@ -178,6 +182,7 @@ let rpcConfigSchema = S.schema(s =>
     "fallbackStallTimeout": s.matches(S.option(S.int)),
     "queryTimeoutMillis": s.matches(S.option(S.int)),
     "pollingInterval": s.matches(S.option(S.int)),
+    "minPollingInterval": s.matches(S.option(S.int)),
   }
 )
 
@@ -1028,6 +1033,7 @@ let fromPublic = (publicConfigJson: JSON.t) => {
             let queryTimeoutMillis = rpcConfig["queryTimeoutMillis"]
             let fallbackStallTimeout = rpcConfig["fallbackStallTimeout"]
             let pollingInterval = rpcConfig["pollingInterval"]
+            let minPollingInterval = rpcConfig["minPollingInterval"]
             let hasSyncConfig =
               initialBlockInterval->Option.isSome ||
               backoffMultiplicative->Option.isSome ||
@@ -1036,7 +1042,8 @@ let fromPublic = (publicConfigJson: JSON.t) => {
               backoffMillis->Option.isSome ||
               queryTimeoutMillis->Option.isSome ||
               fallbackStallTimeout->Option.isSome ||
-              pollingInterval->Option.isSome
+              pollingInterval->Option.isSome ||
+              minPollingInterval->Option.isSome
             let syncConfig: option<sourceSyncOptions> = if hasSyncConfig {
               Some({
                 ?initialBlockInterval,
@@ -1047,6 +1054,7 @@ let fromPublic = (publicConfigJson: JSON.t) => {
                 ?queryTimeoutMillis,
                 ?fallbackStallTimeout,
                 ?pollingInterval,
+                ?minPollingInterval,
               })
             } else {
               None

@@ -237,6 +237,7 @@ let make = (
     chainId,
     poweredByHyperSync: false,
     pollingInterval: syncConfig.pollingInterval,
+    minPollingInterval: syncConfig.minPollingInterval,
     getBlockHashes,
     onReorg: () => rpcClient.onReorg(),
     getHeightOrThrow: async () => {

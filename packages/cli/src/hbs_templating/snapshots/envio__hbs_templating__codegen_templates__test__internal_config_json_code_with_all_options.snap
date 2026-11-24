@@ -32,7 +32,8 @@ expression: json
             "intervalCeiling": 10000,
             "backoffMillis": 5000,
             "queryTimeoutMillis": 20000,
-            "pollingInterval": 2000
+            "pollingInterval": 2000,
+            "minPollingInterval": 3000
           }
         ],
         "contracts": {

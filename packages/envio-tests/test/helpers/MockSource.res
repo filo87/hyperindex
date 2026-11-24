@@ -478,6 +478,7 @@ let make = (
   ~chainId=1,
   ~sourceFor=Source.Sync,
   ~pollingInterval=1000,
+  ~minPollingInterval=?,
   ~isWildcard=false,
   // Pre-configures the standing height answer at construction time, before
   // the mock is handed to the indexer - needed for a call that happens during
@@ -1080,6 +1081,7 @@ let make = (
         poweredByHyperSync: false,
         chainId,
         pollingInterval,
+        ?minPollingInterval,
         getBlockHashes: implement(#getBlockHashes, (~blockNumbers, ~logger as _) => {
           getBlockHashesCalls->Array.push(blockNumbers)->ignore
           let id = ledger->Ledger.takeBlockHashLookup(blockNumbers)

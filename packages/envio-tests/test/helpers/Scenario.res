@@ -35,6 +35,7 @@ type sourceMock = {
   methods?: array<MockSource.method>,
   sourceFor?: Source.sourceFor,
   pollingInterval?: int,
+  minPollingInterval?: int,
   // Feed this chain's items through a wildcard registration rather than an
   // address-dependent one, so its partition takes the wildcard path.
   isWildcard?: bool,
@@ -223,7 +224,16 @@ let run = async (
   let virtualTime = virtualTime->Option.getOr(scenario.virtualTime)
   let clock = virtualTime ? Some(VirtualClock.make()) : None
   let mocks = sources->Array.mapWithIndex((
-    {chain, ?methods, ?sourceFor, ?pollingInterval, ?isWildcard, ?autoHeight, ?startupHeights},
+    {
+      chain,
+      ?methods,
+      ?sourceFor,
+      ?pollingInterval,
+      ?minPollingInterval,
+      ?isWildcard,
+      ?autoHeight,
+      ?startupHeights,
+    },
     position,
   ) => {
     // Named the way the body reaches it, so a timeline line points at the
@@ -245,6 +255,7 @@ let run = async (
         ~chainId=chain,
         ~sourceFor?,
         ~pollingInterval?,
+        ~minPollingInterval?,
         ~isWildcard?,
         ~autoHeight?,
         ~startupHeights?,

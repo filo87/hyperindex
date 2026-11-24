@@ -445,6 +445,126 @@ describe("Height poll failures", () => {
   )
 })
 
+describe("Minimum polling interval", () => {
+  scenario->Scenario.it(
+    "Holds the next poll a full floor behind the last request",
+    ~sources=[{chain: 1337, pollingInterval: 10, minPollingInterval: 1000}],
+    async (~t as _, ~indexer, ~source) => {
+      let mock = source(1337)
+      mock.resolveGetHeightOrThrow(100)
+      await mock->answerQuery(~fromBlock=1, ~toBlock=100)
+      // The head request started the floor's clock. The wait the finished page
+      // leaves may not ask again until a full 1000ms after that start.
+      await mock.expectNewHeightCalls(1)
+      await indexer.advanceTime(999)
+      await mock.expectNewHeightCalls(0)
+      await indexer.advanceTime(1)
+      await mock.expectNewHeightCalls(1)
+    },
+  )
+
+  scenario->Scenario.it(
+    "Does not shorten a retry backoff that is longer than the floor",
+    ~sources=[{chain: 1337, pollingInterval: 10, minPollingInterval: 1000}],
+    ~sourceTiming={getHeightRetryInterval: (~retry as _) => 5000},
+    async (~t as _, ~indexer, ~source) => {
+      let mock = source(1337)
+      mock->fail
+      await mock.expectNewHeightCalls(1)
+      // The floor alone would allow a request at 1000. The 5000ms backoff the
+      // failure earned holds it out, and the floor never cuts it short.
+      await indexer.advanceTime(1000)
+      await mock.expectNewHeightCalls(0)
+      await indexer.advanceTime(4000)
+      await mock.expectNewHeightCalls(1)
+    },
+  )
+
+  scenario->Scenario.it(
+    "Keeps the normal cadence when it is longer than the floor",
+    ~sources=[{chain: 1337, pollingInterval: 1000, minPollingInterval: 300}],
+    async (~t as _, ~indexer, ~source) => {
+      let mock = source(1337)
+      mock.setAutoHeight(100)
+      await mock->answerQuery(~fromBlock=1, ~toBlock=100)
+      await mock.expectNewHeightCalls(1)
+      await indexer.advanceTime(300)
+      await mock.expectNewHeightCalls(1)
+      // The floor passed long ago, so the 1000ms cadence sets the next request.
+      await indexer.advanceTime(999)
+      await mock.expectNewHeightCalls(0)
+      await indexer.advanceTime(1)
+      await mock.expectNewHeightCalls(1)
+    },
+  )
+
+  scenario->Scenario.it(
+    "Re-checks the floor when a wake cuts its sleep short",
+    ~sources=[{chain: 1337, methods: streaming, pollingInterval: 10, minPollingInterval: 1000}],
+    async (~t, ~indexer, ~source) => {
+      let mock = source(1337)
+      mock.resolveGetHeightOrThrow(100)
+      await mock->answerQuery(~fromBlock=1, ~toBlock=100)
+      await mock.expectNewHeightCalls(1)
+      await indexer.advanceTime(500)
+      // A stream claiming to be up wakes the loop in the middle of the floor.
+      // The poll must not happen on the wake, and it still lands exactly at the
+      // floor, which a restart of the whole sleep would miss.
+      mock.setHeightSubscriptionStatus(Live)
+      await indexer.advanceTime(499)
+      await mock.expectNewHeightCalls(0)
+      await indexer.advanceTime(1)
+      await mock.expectNewHeightCalls(1)
+      // The stream is up, so the wake fired against a live subscription. A poll
+      // on the wake itself would have shown as a call in the 499ms window above.
+      t.expect(mock.heightSubscriptionCalls->Array.length > 0).toEqual(true)
+    },
+  )
+})
+
+describe("Minimum polling interval environment override", () => {
+  // The variable is read once, at module load, so the test drives the same
+  // schema and name through a fresh EnvSafe with its own environment.
+  let parse = value => {
+    let env =
+      dict{"ENVIO_RPC_MIN_POLLING_INTERVAL": value}->(Utils.magic: dict<string> => EnvSafe.env)
+    let safe = EnvSafe.make(~env)
+    let value =
+      safe->EnvSafe.get(
+        "ENVIO_RPC_MIN_POLLING_INTERVAL",
+        S.option(Env.Configurable.SyncConfig.nonNegativeMillis),
+      )
+    safe->EnvSafe.close
+    value
+  }
+
+  it("reads a non-negative minimum polling interval", t =>
+    t.expect(parse("750")).toEqual(Some(750))
+  )
+
+  it("refuses a negative one", t =>
+    t.expect(
+      try {
+        parse("-5")->ignore
+        "accepted"
+      } catch {
+      | _ => "refused"
+      },
+    ).toEqual("refused")
+  )
+
+  it("refuses a value that is not an integer", t =>
+    t.expect(
+      try {
+        parse("soon")->ignore
+        "accepted"
+      } catch {
+      | _ => "refused"
+      },
+    ).toEqual("refused")
+  )
+})
+
 describe("Height stream warnings", () => {
   let warningReasons = (indexer: IndexerRunner.t) =>
     indexer.allLogsAsJson()->Array.filterMap(line =>

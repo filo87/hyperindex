@@ -193,6 +193,16 @@ module Hasura = {
 
 module Configurable = {
   module SyncConfig = {
+    // A millisecond count a timer can hold. A negative value would arm a timer
+    // that fires at once, which reads as no setting at all, so it is refused
+    // here rather than silently ignored.
+    let nonNegativeMillis: S.t<int> =
+      S.int->S.refine(s => value =>
+        if value < 0 {
+          s.fail(`Expected a non-negative number of milliseconds, got ${value->Int.toString}.`)
+        }
+      )
+
     let initialBlockInterval =
       envSafe->EnvSafe.get("ENVIO_RPC_INITIAL_BLOCK_INTERVAL", S.option(S.int))
     let backoffMultiplicative =
@@ -200,6 +210,10 @@ module Configurable = {
     let accelerationAdditive =
       envSafe->EnvSafe.get("ENVIO_RPC_ACCELERATION_ADDITIVE", S.option(S.int))
     let intervalCeiling = envSafe->EnvSafe.get("ENVIO_RPC_INTERVAL_CEILING", S.option(S.int))
+    let pollingInterval =
+      envSafe->EnvSafe.get("ENVIO_RPC_POLLING_INTERVAL", S.option(nonNegativeMillis))
+    let minPollingInterval =
+      envSafe->EnvSafe.get("ENVIO_RPC_MIN_POLLING_INTERVAL", S.option(nonNegativeMillis))
     let mergedLogReads =
       envSafe->EnvSafe.get("ENVIO_RPC_MERGED_LOG_READS", S.bool, ~fallback=true)
   }

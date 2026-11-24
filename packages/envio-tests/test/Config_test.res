@@ -234,3 +234,33 @@ describe("EventConfigBuilder", () => {
     )
   })
 })
+
+describe("RPC sync config", () => {
+  // A YAML RPC that names only min_polling_interval must still build a sync
+  // config, so a missed hasSyncConfig check cannot hide behind another option.
+  it("builds a sync config from min_polling_interval alone", t => {
+    let config = TestConfig.fromUserApi(`
+name: test-config
+chains:
+  - id: 1
+    rpc:
+      url: https://rpc.example.test
+      for: sync
+      min_polling_interval: 750
+    start_block: 1
+    contracts:
+      - name: Gravatar
+        address: "0x2B2f78c5BF6D9C12Ee1225D5F374aa91204580c3"
+        events:
+          - event: "TestEvent()"
+`)
+    let chain = config.chainMap->ChainMap.get(ChainId.fromInt(1))
+    let syncConfig = switch chain.sourceConfig {
+    | Config.EvmSourceConfig({rpcs}) => rpcs->Array.get(0)->Option.flatMap(rpc => rpc.syncConfig)
+    | _ => None
+    }
+    t.expect(syncConfig->Option.map(syncConfig => syncConfig.minPollingInterval)).toEqual(
+      Some(Some(750)),
+    )
+  })
+})

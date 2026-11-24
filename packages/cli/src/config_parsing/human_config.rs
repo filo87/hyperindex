@@ -760,6 +760,26 @@ pub mod evm {
         Option::<String>::deserialize(deserializer).map(Option::unwrap_or_default)
     }
 
+    // The runtime reads this through rescript-schema's int, which is an int32.
+    // A larger value would pass the u32 field here and then fail at config load
+    // with a message that names neither the key nor the chain, so refuse it now
+    // where the error can point at the key.
+    fn deserialize_min_polling_interval<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match Option::<u32>::deserialize(deserializer)? {
+            Some(value) if value > i32::MAX as u32 => {
+                Err(<D::Error as serde::de::Error>::custom(format!(
+                    "min_polling_interval is {value} ms. The maximum is {} ms, which is the \
+                     runtime timer range.",
+                    i32::MAX
+                )))
+            }
+            value => Ok(value),
+        }
+    }
+
     #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
     #[serde(deny_unknown_fields)]
     pub struct Rpc {
@@ -826,6 +846,25 @@ pub mod evm {
                            reduce RPC usage as every block is still fetched to check for reorgs."
         )]
         pub polling_interval: Option<u32>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            default,
+            deserialize_with = "deserialize_min_polling_interval"
+        )]
+        #[schemars(
+            range(max = 2_147_483_647u32),
+            description = "The minimum time in milliseconds between the start of one height poll \
+                           request and the start of the next on one RPC source. The default is 0. \
+                           A value of 0 lets a new wait poll at once. The maximum is 2147483647, \
+                           which is the runtime timer range. The limit applies to every polling \
+                           waiter on the source, including a waiter after a rollback. The limit \
+                           lengthens the gap that a backoff, a stalled cadence, or a reduced \
+                           cadence already sets. It never shortens that gap. The limit does not \
+                           apply to a reconnect catch-up poll, which happens at once and sets the \
+                           time of the last request. The limit does not apply to the start block \
+                           resolution at startup."
+        )]
+        pub min_polling_interval: Option<u32>,
     }
 
     #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -1864,6 +1903,29 @@ mod tests {
         assert_eq!(
             npm_schema, actual_schema,
             "Please run 'make update-generated-docs'"
+        );
+    }
+
+    #[test]
+    fn min_polling_interval_rejects_a_value_above_the_timer_range() {
+        // Parsed rather than constructed, so this pins that the key is accepted
+        // in the first place, and that a value past the runtime's int32 fails at
+        // parse time with a message that names the key.
+        let parse = |value: u64| {
+            serde_yaml::from_str::<super::evm::Rpc>(&format!(
+                "url: https://rpc.example.test\nmin_polling_interval: {value}"
+            ))
+        };
+
+        assert_eq!(
+            (
+                parse(2_147_483_647).is_ok(),
+                parse(2_147_483_648)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("min_polling_interval"),
+            ),
+            (true, true)
         );
     }
 

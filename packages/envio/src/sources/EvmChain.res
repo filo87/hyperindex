@@ -16,6 +16,7 @@ let getSyncConfig = (
     ?queryTimeoutMillis,
     ?fallbackStallTimeout,
     ?pollingInterval,
+    ?minPollingInterval,
   }: Config.sourceSyncOptions,
 ): Config.sourceSync => {
   let queryTimeoutMillis = queryTimeoutMillis->Option.getOr(20_000)
@@ -35,7 +36,12 @@ let getSyncConfig = (
     backoffMillis: backoffMillis->Option.getOr(2000),
     queryTimeoutMillis,
     fallbackStallTimeout: fallbackStallTimeout->Option.getOr(queryTimeoutMillis / 2),
-    pollingInterval: pollingInterval->Option.getOr(1000),
+    pollingInterval: Env.Configurable.SyncConfig.pollingInterval->Option.getOr(
+      pollingInterval->Option.getOr(1000),
+    ),
+    minPollingInterval: Env.Configurable.SyncConfig.minPollingInterval->Option.getOr(
+      minPollingInterval->Option.getOr(0),
+    ),
     mergedLogReads: Env.Configurable.SyncConfig.mergedLogReads,
   }
 }

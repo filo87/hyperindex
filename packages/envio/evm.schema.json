@@ -620,6 +620,16 @@
           ],
           "format": "uint32",
           "minimum": 0
+        },
+        "min_polling_interval": {
+          "description": "The minimum time in milliseconds between the start of one height poll request and the start of the next on one RPC source. The default is 0. A value of 0 lets a new wait poll at once. The maximum is 2147483647, which is the runtime timer range. The limit applies to every polling waiter on the source, including a waiter after a rollback. The limit lengthens the gap that a backoff, a stalled cadence, or a reduced cadence already sets. It never shortens that gap. The limit does not apply to a reconnect catch-up poll, which happens at once and sets the time of the last request. The limit does not apply to the start block resolution at startup.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "maximum": 2147483647
         }
       },
       "additionalProperties": false,
